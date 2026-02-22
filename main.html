@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dino Game Web Serial</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>
+    body { 
+      margin: 0; 
+      display: flex; 
+      flex-direction: column; 
+      justify-content: center; 
+      align-items: center; 
+      height: 100vh; 
+      background: #e0f7fa; 
+      font-family: monospace; 
+    }
+    canvas { border: 2px solid #333; border-radius: 8px; background: #b2ebf2; }
+    #status { margin: 10px; padding: 10px; background: #fff; border: 1px solid #ccc; border-radius: 6px; }
+    #data { margin: 10px; font-weight: bold; }
+    button { 
+      padding: 10px 20px; 
+      border: none; 
+      border-radius: 6px; 
+      background: #00796b; 
+      color: white; 
+      cursor: pointer; 
+      font-size: 14px; 
+    }
+    button:hover { background: #004d40; }
+  </style>
+</head>
+<body>
+  <div id="status">Waiting for Arduino connection...</div>
+  <button id="connectBtn">Connect to Arduino</button>
+  <div id="data">Score: 0 | Playing: false | HeroPos: 1</div>
+
+  <script>
+    let port;
+    let gameData = { score: 0, playing: false, heroPos: 1, event: "" };
+    let cactusX = 320; // kaktusun başlanğıc mövqeyi
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600 });
+        document.getElementById('status').textContent = "Connected to Arduino!";
+        listenToSerial();
+      } catch (err) {
+        document.getElementById('status').textContent = "Connection failed!";
+        console.error(err);
+      }
+    });
+
+    async function listenToSerial() {
+      const decoder = new TextDecoderStream();
+      port.readable.pipeTo(decoder.writable);
+      const reader = decoder.readable.getReader();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) {
+          buffer += value;
+          let parts = buffer.split("\n");
+          buffer = parts.pop(); 
+          for (let line of parts) {
+            line = line.trim();
+            if (!line) continue;
+            try {
+              const data = JSON.parse(line);
+              gameData = { ...gameData, ...data };
+              document.getElementById('data').innerHTML =
+                `Score: ${gameData.score} | Playing: ${gameData.playing} | HeroPos: ${gameData.heroPos} | Event: ${gameData.event || ""}`;
+              if (gameData.event === "start") cactusX = width;
+            } catch (e) {
+              console.log("Invalid JSON:", line);
+            }
+          }
+        }
+      }
+    }
+
+    // Space göndərmək (jump)
+    document.addEventListener('keydown', async (e) => {
+      if (e.keyCode === 32 && port?.writable) {
+        const writer = port.writable.getWriter();
+        await writer.write(new TextEncoder().encode("jump\n"));
+        writer.releaseLock();
+      }
+    });
+
+    // p5.js setup
+    function setup() {
+      createCanvas(400, 200);
+      textFont('monospace');
+      frameRate(10);
+    }
+
+    function draw() {
+      background("#b2ebf2"); // səma rəngi
+
+      // Torpaq
+      fill("#4caf50");
+      rect(0, 160, width, 40);
+
+      if (!gameData.playing) {
+        fill(0);
+        textSize(16);
+        text('Press SPACE to Jump', 120, 60);
+
+        if (gameData.event === 'start') {
+          textSize(20);
+          text('Game Started!', 140, 90);
+        } else if (gameData.event === 'gameover') {
+          textSize(20);
+          text('GAME OVER!', 150, 90);
+        }
+      } else {
+        // Dinozavr
+        let dinoY = gameData.heroPos >= 11 ? 120 : 140;
+        fill("#ff5722");
+        rect(40, dinoY, 20, 20, 4);
+
+        // Kaktus
+        fill("#2e7d32");
+        rect(cactusX, 140, 15, 20);
+        cactusX -= 5;
+        if (cactusX < -20) cactusX = width;
+      }
+
+      // Score
+      fill(0);
+      textSize(14);
+      text(`Score: ${gameData.score}`, 300, 20);
+    }
+  </script>
+</body>
+</html>
